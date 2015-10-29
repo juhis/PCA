@@ -71,22 +71,50 @@ public class FileUtil {
             GZipFiles.lines(path)
                     .skip(1) // header
                     .map(line -> line.split("\\t"))
-                    .forEach(row -> insert(row, matrix, transpose));
+                    .forEach(row -> insert(row, matrix, -1, transpose));
         } else {
             Files.lines(path)
                     .skip(1) // header
                     .map(line -> line.split("\\t"))
-                    .forEach(row -> insert(row, matrix, transpose));
+                    .forEach(row -> insert(row, matrix, -1, transpose));
         }
     }
 
-    private static void insert(String[] row, DenseMatrix matrix, boolean transpose) {
+    public static void readArray(Path path, DenseMatrix matrix, int column) throws IOException {
+        readArray(path, matrix, column, false);
+    }
+    
+    public static void readArray(Path path, DenseMatrix matrix, int column, boolean transpose) throws IOException {
 
-        for (int i = 1, len = row.length; i < len; i++) {
+        rowsInserted = 0;
+        if (path.toString().endsWith(".gz")) {
+            GZipFiles.lines(path)
+                    .skip(1) // header
+                    .map(line -> line.split("\\t"))
+                    .forEach(row -> insert(row, matrix, column, transpose));
+        } else {
+            Files.lines(path)
+                    .skip(1) // header
+                    .map(line -> line.split("\\t"))
+                    .forEach(row -> insert(row, matrix, column, transpose));
+        }
+    }
+
+    private static void insert(String[] row, DenseMatrix matrix, int column, boolean transpose) {
+
+        if (column > -1) {
             if (transpose) {
-                matrix.set(i - 1, rowsInserted, Double.parseDouble(row[i]));
+                matrix.set(0, rowsInserted, Double.parseDouble(row[column]));
             } else {
-                matrix.set(rowsInserted, i - 1, Double.parseDouble(row[i]));
+                matrix.set(rowsInserted, 0, Double.parseDouble(row[column]));
+            }
+        } else {
+            for (int i = 1, len = row.length; i < len; i++) {
+                if (transpose) {
+                    matrix.set(i - 1, rowsInserted, Double.parseDouble(row[i]));
+                } else {
+                    matrix.set(rowsInserted, i - 1, Double.parseDouble(row[i]));
+                }
             }
         }
         ++rowsInserted;
