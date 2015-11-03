@@ -11,60 +11,17 @@ import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.EVD;
 import no.uib.cipr.matrix.NotConvergedException;
 
-/**
- *
- * This program uses MTJ (Matrix Toolkits Java) which tries to utilize Java
- * Native Interface to run machine-optimized code. MTJ tells on runtime whether
- * using natives succeeds or not. It's a LOT faster with natives.
- *
- * https://github.com/fommil/matrix-toolkits-java/
- * http://lessthanoptimal.github.io/Java-Matrix-Benchmark/runtime/2013_10_Corei7v2600/
- *
- * 1) Eigenvector decomposition
- *
- * java -jar PCA.jar evd symmetricmatrixfile
- *
- * The first command line argument should be "evd". The second command line
- * argument should be a path to a tab-delimited text file containing a symmetric
- * matrix. The first row in the file, as well as the first column on each row,
- * should contain headers. The input matrix is assumed to be ok.
- *
- * Writes:
- *
- * eigenvectors.txt (a tab-delimited matrix: all right eigenvectors on rows)
- * eigenvaluesReal.txt (real parts of eigenvalues, one per line)
- * eigenvaluesImaginary.txt (imaginary parts of eigenvalues, one per line)
- *
- * 2) Principal component scores
- *
- * java -jar PCA.jar scores eigenvectorfile originalfile
- *
- * The first command line argument should be "scores". The second command line
- * argument should be a path to a tab-delimited text file containing
- * eigenvectors on rows. The first row in the file, as well as the first column
- * on each row, should contain headers.
- *
- * The third command line argument should be a path to a tab-delimited text file
- * containing the original data. The orientation is detected automatically so
- * that either rows or columns should correspond to the columns in the
- * eigenvector file. The first row in the file, as well as the first column on
- * each row, should contain headers.
- *
- * The input matrices are assumed to be ok.
- *
- * Writes:
- *
- * scores.txt (a tab-delimited matrix: all principal component scores on rows)
- * cronbachsAlpha.txt (Cronbach's alpha for each component, one per line)
- *
- * @author juha
- */
 public class PCA {
 
     static final Format dateFormat = new SimpleDateFormat("yyyy-MM-dd");
     static final Format timeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     /**
+     *
+     * Run one of the defined matrix operations:
+     *
+     * center, scale, transpose, covariance, correlation, evd, scores, transform
+     *
      * @param args the command line arguments
      */
     public static void main(String[] args) {
@@ -109,7 +66,7 @@ public class PCA {
             System.exit(1);
         }
 
-        if ("transform".equals(args[0]) && args.length != 4) {
+        if ("transform".equals(args[0]) && args.length != 3) {
             printUsage();
             System.exit(1);
         }
@@ -149,8 +106,7 @@ public class PCA {
                 case "transform":
                     path1 = Paths.get(args[1]);
                     path2 = Paths.get(args[2]);
-                    path3 = Paths.get(args[3]);
-                    transform(path1, path2, path3);
+                    transform(path1, path2);
                     break;
                 default:
                     printUsage();
@@ -163,6 +119,11 @@ public class PCA {
         }
     }
 
+    /**
+     *
+     * Prints program usage instructions to stdout.
+     *
+     */
     private static void printUsage() {
 
         System.out.println("Usages:");
@@ -173,10 +134,28 @@ public class PCA {
         System.out.println("java -jar PCA.jar correlation file");
         System.out.println("java -jar PCA.jar evd symmetricmatrixfile");
         System.out.println("java -jar PCA.jar scores eigenvectorfile originalfile");
-        System.out.println("java -jar PCA.jar transform eigenvectorfile eigenvaluefile originalfile");
+        System.out.println("java -jar PCA.jar transform scorefile eigenvaluefile");
     }
 
-    private static void evd(Path path) throws IOException, NotConvergedException {
+    /**
+     *
+     * Eigenvector decomposition.
+     *
+     * Calculates right eigenvectors and (real parts of) eigenvalues for a given
+     * matrix.
+     *
+     * The given path has to contain a symmetric matrix. Uses natives and is
+     * multi-threaded when natives are available. Single-threaded when natives
+     * are not available.
+     *
+     * Writes two files: path.eigenvectors.txt and path.eigenvalues.txt
+     *
+     * @param path Path of matrix file to run decomposition on
+     * @throws IOException If cannot read from / write to disk
+     * @throws NotConvergedException If eigenvector decomposition doesn't
+     * converge
+     */
+    public static void evd(Path path) throws IOException, NotConvergedException {
 
         log("Reading data");
 
@@ -213,7 +192,23 @@ public class PCA {
         log("Done");
     }
 
-    private static void scores(Path evPath, Path originalPath) throws IOException {
+    /**
+     *
+     * Principal component scores.
+     *
+     * Calculates principal component scores and Cronbach's alpha values based
+     * on a given eigenvector matrix and original data matrix.
+     *
+     * Orientation of the original matrix is automatically detected.
+     *
+     * Writes two files: originalPath.scores.txt and originalPath.cronbachsAlpha.txt
+     *
+     * @param evPath Path to an eigenvector matrix where each row is an
+     * eigenvector
+     * @param originalPath Path to the original data matrix
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void scores(Path evPath, Path originalPath) throws IOException {
 
         log("Reading eigenvectors");
         int numRows = FileUtil.readColumnHeaders(evPath).length;
@@ -275,6 +270,14 @@ public class PCA {
         log("Done");
     }
 
+    /**
+     *
+     * Calculates mean of a given row.
+     *
+     * @param matrix Data matrix
+     * @param row Row index
+     * @return Arithmetic mean of the row
+     */
     private static double getMean(DenseMatrix matrix, int row) {
 
         double mean = 0;
@@ -284,6 +287,15 @@ public class PCA {
         return mean;
     }
 
+    /**
+     *
+     * Calculates variance for a given row.
+     *
+     * @param matrix Data matrix
+     * @param mean Mean of the row
+     * @param row Row index
+     * @return Sample variance of the row
+     */
     private static double getVariance(DenseMatrix matrix, double mean, int row) {
 
         double variance = 0;
@@ -293,7 +305,19 @@ public class PCA {
         return variance;
     }
 
-    private static void center(Path path) throws IOException {
+    /**
+     *
+     * Center each row in a given matrix.
+     *
+     * For each element, subtracts the mean of the corresponding row, thus
+     * centering each row to a mean of zero.
+     *
+     * Writes path.centered.txt
+     *
+     * @param path Path to the data matrix
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void center(Path path) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -321,7 +345,19 @@ public class PCA {
         log("Done");
     }
 
-    private static void scale(Path path) throws IOException {
+    /**
+     *
+     * Scale each row in a given matrix.
+     *
+     * Divides each element with the standard deviation of the corresponding
+     * row, thus scaling each row to a standard deviation of one.
+     *
+     * Writes path.scaled.txt
+     *
+     * @param path Path to the data matrix
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void scale(Path path) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -351,7 +387,18 @@ public class PCA {
         log("Done");
     }
 
-    private static void covariance(Path path) throws IOException {
+    /**
+     *
+     * Covariance over rows.
+     *
+     * Calculates covariance for each pair of rows in a given matrix.
+     *
+     * Writes the symmetric covariance matrix path.covariance.txt
+     *
+     * @param path Path to the data matrix
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void covariance(Path path) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -386,7 +433,18 @@ public class PCA {
         log("Done");
     }
 
-    private static void correlation(Path path) throws IOException {
+    /**
+     *
+     * Pearson correlation over rows.
+     *
+     * Calculates Pearson correlation for each pair of rows in a given matrix.
+     *
+     * Writes the symmetric correlation matrix path.correlation.txt
+     *
+     * @param path Path to the data matrix
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void correlation(Path path) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -425,7 +483,16 @@ public class PCA {
         log("Done");
     }
 
-    private static void transpose(Path path) throws IOException {
+    /**
+     *
+     * Transpose a given data matrix.
+     *
+     * Writes path.transposed.txt
+     *
+     * @param path Path to the data matrix
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void transpose(Path path) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -444,68 +511,91 @@ public class PCA {
         log("Done");
     }
 
-    private static void transform(Path evPath, Path eigenvaluePath, Path originalPath) throws IOException {
+    /**
+     *
+     * Change orientation of PCA results.
+     *
+     * Calculates "transposed eigenvectors" from a given principal component score
+     * file and eigenvalue file.
+     *
+     * Note: This works in the following scenario:
+     *
+     * - There is an original input matrix X
+     *
+     * - Each column of X has been centered (zero mean for each column)
+     *
+     * - A covariance matrix has been calculated over rows (for pairs of rows) of X
+     * 
+     * - Eigenvector decomposition has been done for this covariance matrix
+     * 
+     * - Principal component scores have been calculated based on the resulting eigenvectors
+     *
+     * Then, this method calculates "transposed eigenvectors": eigenvectors as
+     * they would be if PCA had been done this way:
+     * 
+     * - Original input matrix Y = X' (X transposed)
+     * 
+     * - Each column of Y has been centered (zero mean for each column)
+     * 
+     * - A covariance matrix has been calculated over rows (for pairs of rows) of Y
+     * 
+     * - Eigenvector decomposition has been done for this covariance matrix
+     * 
+     * Writes scorePath.transformedToEigenvectors.txt
+     * 
+     * @param scorePath Path to a principal component score matrix
+     * where each row is a component
+     * @param eigenvaluePath Path to a file with eigenvalues
+     * (corresponding to the eigenvectors from which the principal component scores have been calculated)
+     * @throws IOException If cannot read from / write to disk
+     */
+    public static void transform(Path scorePath, Path eigenvaluePath) throws IOException {
 
-        log("Reading eigenvectors");
-        int numRows = FileUtil.readColumnHeaders(evPath).length;
-        log("Matrix size " + numRows + " x " + numRows);
-        DenseMatrix evMatrix = new DenseMatrix(numRows, numRows);
-        FileUtil.readMatrix(evPath, evMatrix);
-        log("Eigenvectors read");
-
-        log("Reading original data");
-        String[] headers = FileUtil.readColumnHeaders(originalPath);
-        int numCols = headers.length;
-        DenseMatrix originalMatrix;
-        if (numCols == numRows) { // transpose data
-            headers = FileUtil.readRowHeaders(originalPath);
-            numCols = headers.length;
-            log("Matrix size (transposed) " + numRows + " x " + numCols);
-            originalMatrix = new DenseMatrix(numRows, numCols);
-            FileUtil.readMatrix(originalPath, originalMatrix, true);
-        } else {
-            log("Matrix size " + numRows + " x " + numCols);
-            originalMatrix = new DenseMatrix(numRows, numCols);
-            FileUtil.readMatrix(originalPath, originalMatrix);
-        }
-        log("Original data read");
+        log("Reading scores");
+        String[] colHeaders = FileUtil.readColumnHeaders(scorePath);
+        String[] rowHeaders = FileUtil.readRowHeaders(scorePath);
+        int numCols = colHeaders.length;
+        int numRows = rowHeaders.length;
+        DenseMatrix scoreMatrix = new DenseMatrix(numRows, numCols);
+        FileUtil.readMatrix(scorePath, scoreMatrix);
+        log("Scores read");
 
         log("Reading eigenvalues");
         DenseMatrix eigenvalueMatrix = new DenseMatrix(numRows, 1);
         FileUtil.readArray(eigenvaluePath, eigenvalueMatrix, 0);
         log("Eigenvalues read");
 
-        log("Calculating transformation");
-        DenseMatrix transformedMatrix = new DenseMatrix(numRows, numCols);
-        evMatrix.mult(originalMatrix, transformedMatrix);
+        log("Calculating transposed eigenvectors");
+        DenseMatrix transposedEVMatrix = new DenseMatrix(numRows, numCols);
         for (int comp = 0; comp < numRows; comp++) {
             for (int i = 0; i < numCols; i++) {
-                double score = transformedMatrix.get(comp, i);
-                transformedMatrix.set(comp, i, score / (Math.sqrt(2 * eigenvalueMatrix.get(comp, 0) * (numRows - 1) / (numCols - 1))));
+                double score = scoreMatrix.get(comp, i);
+                transposedEVMatrix.set(comp, i, score / (Math.sqrt((numCols) * eigenvalueMatrix.get(comp, 0))));
             }
         }
         log("Transformation calculated");
 
-        log("Writing transformed matrix");
-        String[] pcHeaders = new String[numRows];
-        for (int i = 0, len = pcHeaders.length; i < len; i++) {
-            pcHeaders[i] = "PC" + (i + 1);
-        }
-
-        try (FileWriter fw = new FileWriter(originalPath.toString().replace(".gz", "").replace(".txt", "") + ".transformed.txt")) {
-            FileUtil.writeMatrix(fw, transformedMatrix, pcHeaders, headers);
+        try (FileWriter fw = new FileWriter(scorePath.toString().replace(".gz", "").replace(".txt", "") + ".transformedToEigenvectors.txt")) {
+            FileUtil.writeMatrix(fw, transposedEVMatrix, rowHeaders, colHeaders);
         }
 
         log("Done");
     }
 
+    /**
+     * 
+     * Calculate Cronbach's alpha for each principal component.
+     * 
+     * @param evMatrix Eigenvector matrix, each row is an eigenvector
+     * @param scoreMatrix Principal component score matrix, each row is a component
+     * @return An array of Cronbach's alpha values
+     */
     private static double[] cronbachsAlpha(DenseMatrix evMatrix, DenseMatrix scoreMatrix) {
 
         int numComps = evMatrix.numRows();
         int len = evMatrix.numColumns();
         int lenScores = scoreMatrix.numColumns();
 
-        // Cronbach's alpha for each component
         double[] alphas = new double[numComps];
         for (int comp = 0; comp < numComps; comp++) {
 
@@ -532,6 +622,12 @@ public class PCA {
         return alphas;
     }
 
+    /**
+     * 
+     * Print given text to stdout, preceded by a MySQL-style timestamp and a tab.
+     * 
+     * @param text Text to log
+     */
     private static void log(String text) {
 
         String time = timeFormat.format(new Date());
