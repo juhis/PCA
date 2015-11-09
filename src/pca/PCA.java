@@ -6,7 +6,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.Format;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.EVD;
 import no.uib.cipr.matrix.NotConvergedException;
@@ -36,7 +39,7 @@ public class PCA {
             System.exit(1);
         }
 
-        if ("scores".equals(args[0]) && args.length != 3) {
+        if ("scores".equals(args[0]) && args.length < 3) {
             printUsage();
             System.exit(1);
         }
@@ -81,7 +84,11 @@ public class PCA {
                 case "scores":
                     path1 = Paths.get(args[1]);
                     path2 = Paths.get(args[2]);
-                    scores(path1, path2);
+                    boolean isEVTransposed = false;
+                    if (args.length > 3 && "transpose".equals(args[3])) {
+                        isEVTransposed = true;
+                    }
+                    scores(path1, path2, isEVTransposed);
                     break;
                 case "transpose":
                     path1 = Paths.get(args[1]);
@@ -107,6 +114,25 @@ public class PCA {
                     path1 = Paths.get(args[1]);
                     path2 = Paths.get(args[2]);
                     transform(path1, path2);
+                    break;
+                case "splithalf":
+                    path1 = Paths.get(args[1]);
+                    path2 = Paths.get(args[2]);
+                    isEVTransposed = false;
+                    if (args.length > 3 && "transpose".equals(args[3])) {
+                        isEVTransposed = true;
+                    }
+                    splitHalf(path1, path2, isEVTransposed);
+                    break;
+                case "cronbach":
+                    path1 = Paths.get(args[1]);
+                    path2 = Paths.get(args[2]);
+                    path3 = Paths.get(args[3]);
+                    isEVTransposed = false;
+                    if (args.length > 4 && "transpose".equals(args[4])) {
+                        isEVTransposed = true;
+                    }
+                    cronbach(path1, path2, path3, isEVTransposed);
                     break;
                 default:
                     printUsage();
@@ -201,20 +227,27 @@ public class PCA {
      *
      * Orientation of the original matrix is automatically detected.
      *
-     * Writes two files: originalPath.scores.txt and originalPath.cronbachsAlpha.txt
+     * Writes two files: originalPath.scores.txt and
+     * originalPath.cronbachsAlpha.txt
      *
      * @param evPath Path to an eigenvector matrix where each row is an
      * eigenvector
      * @param originalPath Path to the original data matrix
+     * @param isEVTransposed True if each column is an eigenvector in the
+     * eigenvector matrix
      * @throws IOException If cannot read from / write to disk
      */
-    public static void scores(Path evPath, Path originalPath) throws IOException {
+    public static void scores(Path evPath, Path originalPath, boolean isEVTransposed) throws IOException {
 
-        log("Reading eigenvectors");
+        if (isEVTransposed) {
+            log("Reading eigenvectors (transposed)");
+        } else {
+            log("Reading eigenvectors");
+        }
         int numRows = FileUtil.readColumnHeaders(evPath).length;
         log("Matrix size " + numRows + " x " + numRows);
         DenseMatrix evMatrix = new DenseMatrix(numRows, numRows);
-        FileUtil.readMatrix(evPath, evMatrix);
+        FileUtil.readMatrix(evPath, evMatrix, isEVTransposed);
         log("Eigenvectors read");
 
         log("Reading original data");
@@ -259,7 +292,7 @@ public class PCA {
         }
 
         log("Calculating Cronbach's alpha for each component");
-        double[] alphas = cronbachsAlpha(evMatrix, scoreMatrix);
+        double[] alphas = cronbachsAlpha(originalMatrix, evMatrix, scoreMatrix);
         log("Cronbach's alphas calculated");
 
         log("Writing Cronbach's alphas");
@@ -422,6 +455,9 @@ public class PCA {
                 covarianceMatrix.set(r1, r2, covariance);
                 covarianceMatrix.set(r2, r1, covariance);
             }
+            if (r1 % 1000 == 0) {
+                log(r1 + " rows processed");
+            }
         }
         log("Covariance matrix calculated");
 
@@ -472,6 +508,9 @@ public class PCA {
                 correlationMatrix.set(r1, r2, covariance / denom);
                 correlationMatrix.set(r2, r1, covariance / denom);
             }
+            if (r1 % 1000 == 0) {
+                log(r1 + " rows processed");
+            }
         }
         log("Correlation matrix calculated");
 
@@ -515,8 +554,8 @@ public class PCA {
      *
      * Change orientation of PCA results.
      *
-     * Calculates "transposed eigenvectors" from a given principal component score
-     * file and eigenvalue file.
+     * Calculates "transposed eigenvectors" from a given principal component
+     * score file and eigenvalue file.
      *
      * Note: This works in the following scenario:
      *
@@ -524,29 +563,33 @@ public class PCA {
      *
      * - Each column of X has been centered (zero mean for each column)
      *
-     * - A covariance matrix has been calculated over rows (for pairs of rows) of X
-     * 
+     * - A covariance matrix has been calculated over rows (for pairs of rows)
+     * of X
+     *
      * - Eigenvector decomposition has been done for this covariance matrix
-     * 
-     * - Principal component scores have been calculated based on the resulting eigenvectors
+     *
+     * - Principal component scores have been calculated based on the resulting
+     * eigenvectors
      *
      * Then, this method calculates "transposed eigenvectors": eigenvectors as
      * they would be if PCA had been done this way:
-     * 
+     *
      * - Original input matrix Y = X' (X transposed)
-     * 
+     *
      * - Each column of Y has been centered (zero mean for each column)
-     * 
-     * - A covariance matrix has been calculated over rows (for pairs of rows) of Y
-     * 
+     *
+     * - A covariance matrix has been calculated over rows (for pairs of rows)
+     * of Y
+     *
      * - Eigenvector decomposition has been done for this covariance matrix
-     * 
+     *
      * Writes scorePath.transformedToEigenvectors.txt
-     * 
-     * @param scorePath Path to a principal component score matrix
-     * where each row is a component
-     * @param eigenvaluePath Path to a file with eigenvalues
-     * (corresponding to the eigenvectors from which the principal component scores have been calculated)
+     *
+     * @param scorePath Path to a principal component score matrix where each
+     * row is a component
+     * @param eigenvaluePath Path to a file with eigenvalues (corresponding to
+     * the eigenvectors from which the principal component scores have been
+     * calculated)
      * @throws IOException If cannot read from / write to disk
      */
     public static void transform(Path scorePath, Path eigenvaluePath) throws IOException {
@@ -583,54 +626,179 @@ public class PCA {
     }
 
     /**
-     * 
+     *
      * Calculate Cronbach's alpha for each principal component.
-     * 
+     *
      * @param evMatrix Eigenvector matrix, each row is an eigenvector
-     * @param scoreMatrix Principal component score matrix, each row is a component
+     * @param scoreMatrix Principal component score matrix, each row is a
+     * component
      * @return An array of Cronbach's alpha values
      */
-    private static double[] cronbachsAlpha(DenseMatrix evMatrix, DenseMatrix scoreMatrix) {
+    private static double[] cronbachsAlpha(DenseMatrix originalMatrix, DenseMatrix evMatrix, DenseMatrix scoreMatrix) {
 
         int numComps = evMatrix.numRows();
-        int len = evMatrix.numColumns();
+        int lenItems = evMatrix.numColumns();
         int lenScores = scoreMatrix.numColumns();
 
         double[] alphas = new double[numComps];
         for (int comp = 0; comp < numComps; comp++) {
 
-            double evSquaredSum = 0;
-            for (int i = 0; i < len; i++) {
-                evSquaredSum += evMatrix.get(comp, i) * evMatrix.get(comp, i);
+            double sumVariance = 0;
+            double[] scores = new double[lenScores];
+            for (int i = 0; i < lenItems; i++) {
+                for (int j = 0; j < lenScores; j++) {
+                    scores[j] = originalMatrix.get(i, j) * evMatrix.get(comp, i);
+                }
+                sumVariance += JSci.maths.ArrayMath.variance(scores);
             }
 
-            double scoreMean = 0;
-            for (int i = 0; i < lenScores; i++) {
-                scoreMean += scoreMatrix.get(comp, i) / lenScores;
-            }
+            double scoreMean = getMean(scoreMatrix, comp);
+            double scoreVariance = getVariance(scoreMatrix, scoreMean, comp);
 
-            double scoreVariance = 0;
-            for (int i = 0; i < lenScores; i++) {
-                double score = scoreMatrix.get(comp, i);
-                scoreVariance += (score - scoreMean) * (score - scoreMean) / (lenScores - 1);
-            }
-
-            double alpha = (lenScores / (lenScores - 1d)) * (1d - (evSquaredSum / scoreVariance));
+            double alpha = (lenItems / (lenItems - 1d)) * (1d - (sumVariance / scoreVariance));
             alphas[comp] = alpha;
+            
+            log((comp + 1) + "\t" + alpha);
         }
 
         return alphas;
     }
 
+    private static void splitHalf(Path evPath, Path originalPath, boolean isEVTransposed) throws IOException {
+
+        if (isEVTransposed) {
+            log("Reading eigenvectors (transposed)");
+        } else {
+            log("Reading eigenvectors");
+        }
+        int numRows = FileUtil.readColumnHeaders(evPath).length;
+        log("Matrix size " + numRows + " x " + numRows);
+        DenseMatrix evMatrix = new DenseMatrix(numRows, numRows);
+        FileUtil.readMatrix(evPath, evMatrix, isEVTransposed);
+        log("Eigenvectors read");
+
+        log("Reading original data");
+        String[] headers = FileUtil.readColumnHeaders(originalPath);
+        int numCols = headers.length;
+        DenseMatrix originalMatrix;
+        if (numCols == numRows) { // transpose data
+            headers = FileUtil.readRowHeaders(originalPath);
+            numCols = headers.length;
+            log("Matrix size (transposed) " + numRows + " x " + numCols);
+            originalMatrix = new DenseMatrix(numRows, numCols);
+            FileUtil.readMatrix(originalPath, originalMatrix, true);
+        } else {
+            log("Matrix size " + numRows + " x " + numCols);
+            originalMatrix = new DenseMatrix(numRows, numCols);
+            FileUtil.readMatrix(originalPath, originalMatrix);
+        }
+        log("Original data read");
+
+        log("Centering each row of original data");
+        for (int r = 0; r < numRows; r++) {
+            double mean = getMean(originalMatrix, r);
+            for (int c = 0; c < numCols; c++) {
+                originalMatrix.add(r, c, -mean);
+            }
+        }
+        log("Rows centered");
+
+        List<Integer> indexList = new ArrayList<>();
+        for (int r = 0; r < numRows; r++) {
+            indexList.add(r);
+        }
+        Collections.shuffle(indexList);
+        int[] splitIndices1 = new int[numRows / 2];
+        int[] splitIndices2 = new int[numRows / 2];
+        for (int r = 0; r < numRows / 2; r++) {
+            splitIndices1[r] = indexList.get(r);
+            splitIndices2[r] = indexList.get(r + numRows / 2);
+        }
+
+        log("Calculating split half correlations");
+        for (int comp = 0; comp < numRows; comp++) {
+
+            double[] pcScoresThisCompSplit1 = new double[numCols];
+            double[] pcScoresThisCompSplit2 = new double[numCols];
+            for (int c = 0; c < numCols; c++) {
+                for (int i = 0; i < numRows / 2; i++) {
+                    pcScoresThisCompSplit1[c] += originalMatrix.get(splitIndices1[i], c) * evMatrix.get(comp, splitIndices1[i]);
+                    pcScoresThisCompSplit2[c] += originalMatrix.get(splitIndices2[i], c) * evMatrix.get(comp, splitIndices2[i]);
+                }
+            }
+
+            double mean1 = JSci.maths.ArrayMath.mean(pcScoresThisCompSplit1);
+            double var1 = JSci.maths.ArrayMath.variance(pcScoresThisCompSplit1);
+            double mean2 = JSci.maths.ArrayMath.mean(pcScoresThisCompSplit2);
+            double var2 = JSci.maths.ArrayMath.variance(pcScoresThisCompSplit2);
+            double covariance = 0;
+            for (int c = 0; c < numCols; c++) {
+                covariance += (pcScoresThisCompSplit1[c] - mean1) * (pcScoresThisCompSplit2[c] - mean2) / (numCols - 1);
+            }
+            double denom = Math.sqrt(var1 * var2);
+
+            log((comp + 1) + "\t" + covariance / denom);
+        }
+        log("Split half correlations calculated");
+    }
+
     /**
-     * 
-     * Print given text to stdout, preceded by a MySQL-style timestamp and a tab.
-     * 
+     *
+     * Print given text to stdout, preceded by a MySQL-style timestamp and a
+     * tab.
+     *
      * @param text Text to log
      */
     private static void log(String text) {
 
         String time = timeFormat.format(new Date());
         System.out.println(time + "\t" + text);
+    }
+
+    private static void cronbach(Path originalPath, Path evPath, Path scorePath, boolean isEVTransposed) throws IOException {
+
+        if (isEVTransposed) {
+            log("Reading eigenvectors (transposed)");
+        } else {
+            log("Reading eigenvectors");
+        }
+        int numRows = FileUtil.readColumnHeaders(evPath).length;
+        log("Matrix size " + numRows + " x " + numRows);
+        DenseMatrix evMatrix = new DenseMatrix(numRows, numRows);
+        FileUtil.readMatrix(evPath, evMatrix, isEVTransposed);
+        log("Eigenvectors read");
+
+        log("Reading scores");
+        String[] colHeaders = FileUtil.readColumnHeaders(scorePath);
+        int numCols = colHeaders.length;
+        DenseMatrix scoreMatrix = new DenseMatrix(numRows, numCols);
+        FileUtil.readMatrix(scorePath, scoreMatrix);
+        log("Scores read");
+
+        log("Reading original data");
+        String[] headers = FileUtil.readColumnHeaders(originalPath);
+        numCols = headers.length;
+        DenseMatrix originalMatrix;
+        if (numCols == numRows) { // transpose data
+            headers = FileUtil.readRowHeaders(originalPath);
+            numCols = headers.length;
+            log("Matrix size (transposed) " + numRows + " x " + numCols);
+            originalMatrix = new DenseMatrix(numRows, numCols);
+            FileUtil.readMatrix(originalPath, originalMatrix, true);
+        } else {
+            log("Matrix size " + numRows + " x " + numCols);
+            originalMatrix = new DenseMatrix(numRows, numCols);
+            FileUtil.readMatrix(originalPath, originalMatrix);
+        }
+        log("Original data read");
+        
+        log("Calculating Cronbach's alpha for each component");
+        double[] alphas = cronbachsAlpha(originalMatrix, evMatrix, scoreMatrix);
+        log("Cronbach's alphas calculated");
+
+        log("Writing Cronbach's alphas");
+        try (FileWriter fw = new FileWriter(scorePath.toString().replace(".gz", "").replace(".txt", "") + ".cronbachsAlpha.txt")) {
+            FileUtil.writeArray(fw, "cronbachsAlpha", alphas);
+        }
     }
 }
