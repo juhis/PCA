@@ -7,6 +7,7 @@ Principal component analysis
 * Calculate covariance and correlation matrices
 * Calculate eigenvector decomposition for symmetric matrices (such as covariance and correlation matrices)
 * Calculate principal component scores based on an eigenvector matrix and an original data matrix.
+* Change orientation of PCA results: Calculate "transposed eigenvectors" under certain circumstances
 
 This program uses MTJ (Matrix Toolkits Java) which tries to utilize Java Native Interface to run machine-optimized code. MTJ tells on runtime whether using natives succeeds or not. It's a LOT faster with natives.
 
@@ -94,7 +95,7 @@ Writes:
 java -jar PCA.jar evd symmetricmatrixfile
 ```
 
-The first command line argument should be "evd". The second command line argument should be a path to a tab-delimited text file containing a *symmetric* matrix.
+The first command line argument should be "evd". The second command line argument should be a path to a tab-delimited text file containing a symmetric matrix.
 
 Writes:
 
@@ -113,19 +114,32 @@ The third command line argument should be a path to a tab-delimited text file co
 
 Writes:
 
-* file.scores.txt (a tab-delimited matrix: all principal component scores on rows)
-* file.cronbachsAlpha.txt (Cronbach's alpha for each component, one per line)
+* originalfile.scores.txt (a tab-delimited matrix: all principal component scores on rows)
+* originalfile.cronbachsAlpha.txt (Cronbach's alpha for each component, one per line)
 
-## Transformation of orientation (work in progress)
+## Transformation of orientation: "Transposed eigenvectors" from principal component scores and eigenvalues
 
 ```
-java -jar PCA.jar transform eigenvectorfile eigenvaluefile originalfile
+java -jar PCA.jar transform scorefile eigenvaluefile
 ```
 
-The first command line argument should be "transform". The second command line argument should be a path to a tab-delimited text file containing eigenvectors on rows. The third command line argument should be a file with eigenvalues corresponding to the eigenvectors.
+The first command line argument should be "transform". The second command line argument should be a path to a tab-delimited text file containing principal component scores on rows (i.e. each row corresponds to a component). The third command line argument should be a file with eigenvalues corresponding to the eigenvectors based on which the principal component scores have been calculated.
 
-The fourth command line argument should be a path to a tab-delimited text file containing the original data. The orientation is detected automatically so that either rows or columns should correspond to the columns in the eigenvector file.
+*Note: This operation works in the following scenario:*
+
+* There is an original input matrix X
+* Each column of X has been centered (zero mean for each column)
+* A covariance matrix has been calculated over rows (for pairs of rows) of X
+* Eigenvector decomposition has been done for this covariance matrix
+* Principal component scores have been calculated based on the resulting eigenvectors
+
+Then, this method calculates "transposed eigenvectors": eigenvectors as they would be if PCA had been done this way:
+
+* Original input matrix Y = X' (X transposed)
+* Each column of Y has been centered (zero mean for each column)
+* A covariance matrix has been calculated over rows (for pairs of rows) of Y
+* Eigenvector decomposition has been done for this covariance matrix
 
 Writes:
 
-* file.transformed.txt (a tab-delimited matrix: all transpose-eigenvectors on rows)
+* scorefile.transformed.txt (a tab-delimited matrix: all "transposed eigenvectors" on rows)
