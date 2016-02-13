@@ -10,6 +10,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.EVD;
 import no.uib.cipr.matrix.NotConvergedException;
@@ -74,6 +79,11 @@ public class PCA {
             System.exit(1);
         }
 
+        if ("noise".equals(args[0]) && args.length != 2) {
+            printUsage();
+            System.exit(1);
+        }
+
         Path path1, path2, path3;
         try {
             switch (args[0]) {
@@ -94,21 +104,37 @@ public class PCA {
                     path1 = Paths.get(args[1]);
                     transpose(path1);
                     break;
-                case "center":
+                case "center-rows":
                     path1 = Paths.get(args[1]);
-                    center(path1);
+                    center(path1, false);
                     break;
-                case "scale":
+                case "center-columns":
                     path1 = Paths.get(args[1]);
-                    scale(path1);
+                    center(path1, true);
                     break;
-                case "covariance":
+                case "scale-rows":
                     path1 = Paths.get(args[1]);
-                    covariance(path1);
+                    scale(path1, false);
                     break;
-                case "correlation":
+                case "scale-columns":
                     path1 = Paths.get(args[1]);
-                    correlation(path1);
+                    scale(path1, true);
+                    break;
+                case "covariance-rows":
+                    path1 = Paths.get(args[1]);
+                    covcor(path1, false, false);
+                    break;
+                case "covariance-columns":
+                    path1 = Paths.get(args[1]);
+                    covcor(path1, false, true);
+                    break;
+                case "correlation-rows":
+                    path1 = Paths.get(args[1]);
+                    covcor(path1, true, false);
+                    break;
+                case "correlation-columns":
+                    path1 = Paths.get(args[1]);
+                    covcor(path1, true, true);
                     break;
                 case "transform":
                     path1 = Paths.get(args[1]);
@@ -134,6 +160,10 @@ public class PCA {
                     }
                     cronbach(path1, path2, path3, isEVTransposed);
                     break;
+                case "noise":
+                    path1 = Paths.get(args[1]);
+                    addNoise(path1);
+                    break;
                 default:
                     printUsage();
                     System.exit(1);
@@ -142,6 +172,8 @@ public class PCA {
             System.err.println("Could not read or write file: " + ex.getMessage());
         } catch (NotConvergedException ex) {
             System.err.println("Eigenvector decomposition did not converge: " + ex.getMessage());
+        } catch (InterruptedException ex) {
+            System.err.println("Interrupted:" + ex.getMessage());
         }
     }
 
@@ -153,11 +185,15 @@ public class PCA {
     private static void printUsage() {
 
         System.out.println("Usages:");
-        System.out.println("java -jar PCA.jar center file");
-        System.out.println("java -jar PCA.jar scale file");
+        System.out.println("java -jar PCA.jar center-rows file");
+        System.out.println("java -jar PCA.jar center-columns file");
+        System.out.println("java -jar PCA.jar scale-rows file");
+        System.out.println("java -jar PCA.jar scale-columns file");
         System.out.println("java -jar PCA.jar transpose file");
-        System.out.println("java -jar PCA.jar covariance file");
-        System.out.println("java -jar PCA.jar correlation file");
+        System.out.println("java -jar PCA.jar covariance-rows file");
+        System.out.println("java -jar PCA.jar covariance-columns file");
+        System.out.println("java -jar PCA.jar correlation-rows file");
+        System.out.println("java -jar PCA.jar correlation-columns file");
         System.out.println("java -jar PCA.jar evd symmetricmatrixfile");
         System.out.println("java -jar PCA.jar scores eigenvectorfile originalfile");
         System.out.println("java -jar PCA.jar transform scorefile eigenvaluefile");
@@ -269,7 +305,7 @@ public class PCA {
 
         log("Centering each row of original data");
         for (int r = 0; r < numRows; r++) {
-            double mean = getMean(originalMatrix, r);
+            double mean = getRowMean(originalMatrix, r);
             for (int c = 0; c < numCols; c++) {
                 originalMatrix.add(r, c, -mean);
             }
@@ -311,11 +347,28 @@ public class PCA {
      * @param row Row index
      * @return Arithmetic mean of the row
      */
-    private static double getMean(DenseMatrix matrix, int row) {
+    private static double getRowMean(DenseMatrix matrix, int row) {
 
         double mean = 0;
         for (int c = 0, numCols = matrix.numColumns(); c < numCols; c++) {
             mean += matrix.get(row, c) / numCols;
+        }
+        return mean;
+    }
+
+    /**
+     *
+     * Calculates mean of a given column.
+     *
+     * @param matrix Data matrix
+     * @param col Column index
+     * @return Arithmetic mean of the column
+     */
+    private static double getColumnMean(DenseMatrix matrix, int col) {
+
+        double mean = 0;
+        for (int r = 0, numRows = matrix.numRows(); r < numRows; r++) {
+            mean += matrix.get(r, col) / numRows;
         }
         return mean;
     }
@@ -329,7 +382,7 @@ public class PCA {
      * @param row Row index
      * @return Sample variance of the row
      */
-    private static double getVariance(DenseMatrix matrix, double mean, int row) {
+    private static double getRowVariance(DenseMatrix matrix, double mean, int row) {
 
         double variance = 0;
         for (int c = 0, numCols = matrix.numColumns(); c < numCols; c++) {
@@ -340,17 +393,50 @@ public class PCA {
 
     /**
      *
-     * Center each row in a given matrix.
+     * Calculates variance for a given row.
      *
-     * For each element, subtracts the mean of the corresponding row, thus
-     * centering each row to a mean of zero.
+     * @param matrix Data matrix
+     * @param row Row index
+     * @return Sample variance of the row
+     */
+    private static double getRowVariance(DenseMatrix originalMatrix, int row) {
+
+        double mean = getRowMean(originalMatrix, row);
+        return getRowVariance(originalMatrix, mean, row);
+    }
+    
+    /**
      *
-     * Writes path.centered.txt
+     * Calculates variance for a given column.
+     *
+     * @param matrix Data matrix
+     * @param mean Mean of the column
+     * @param col Column index
+     * @return Sample variance of the column
+     */
+    private static double getColumnVariance(DenseMatrix matrix, double mean, int col) {
+
+        double variance = 0;
+        for (int r = 0, numRows = matrix.numRows(); r < numRows; r++) {
+            variance += (matrix.get(r, col) - mean) * (matrix.get(r, col) - mean) / (numRows - 1);
+        }
+        return variance;
+    }
+
+    /**
+     *
+     * Center each row or column in a given matrix.
+     *
+     * For each element, subtracts the mean of the corresponding row or column,
+     * thus centering each row or column to a mean of zero.
+     *
+     * Writes path.means.txt and path.centered.txt
      *
      * @param path Path to the data matrix
+     * @param onColumns true if columns are to be centered instead of rows
      * @throws IOException If cannot read from / write to disk
      */
-    public static void center(Path path) throws IOException {
+    public static void center(Path path, boolean onColumns) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -361,17 +447,39 @@ public class PCA {
         FileUtil.readMatrix(path, matrix);
         log("Data read");
 
-        log("Centering each row of data");
-        for (int r = 0; r < numRows; r++) {
-            double mean = getMean(matrix, r);
+        String suffix;
+        double[] means;
+        if (onColumns) {
+            log("Centering each column of data");
+            suffix = "columns";
+            means = new double[numCols];
             for (int c = 0; c < numCols; c++) {
-                matrix.add(r, c, -mean);
+                double mean = getColumnMean(matrix, c);
+                means[c] = mean;
+                for (int r = 0; r < numRows; r++) {
+                    matrix.add(r, c, -mean);
+                }
             }
+            log("Columns centered");
+        } else {
+            log("Centering each row of data");
+            suffix = "rows";
+            means = new double[numRows];
+            for (int r = 0; r < numRows; r++) {
+                double mean = getRowMean(matrix, r);
+                means[r] = mean;
+                for (int c = 0; c < numCols; c++) {
+                    matrix.add(r, c, -mean);
+                }
+            }
+            log("Rows centered");
         }
-        log("Rows centered");
 
         log("Writing centered data");
-        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".centered.txt")) {
+        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".means-" + suffix + ".txt")) {
+            FileUtil.writeArray(fw, "means-" + suffix, means);
+        }
+        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".centered-" + suffix + ".txt")) {
             FileUtil.writeMatrix(fw, matrix, rowHeaders, colHeaders);
         }
 
@@ -380,17 +488,18 @@ public class PCA {
 
     /**
      *
-     * Scale each row in a given matrix.
+     * Scale each row or column in a given matrix.
      *
      * Divides each element with the standard deviation of the corresponding
-     * row, thus scaling each row to a standard deviation of one.
+     * row/column, thus scaling each row/column to a standard deviation of one.
      *
-     * Writes path.scaled.txt
+     * Writes path stdevs.txt and path.scaled.txt
      *
      * @param path Path to the data matrix
+     * @param onColumns true if columns are to be centered instead of rows
      * @throws IOException If cannot read from / write to disk
      */
-    public static void scale(Path path) throws IOException {
+    public static void scale(Path path, boolean onColumns) throws IOException {
 
         log("Reading data");
         String[] colHeaders = FileUtil.readColumnHeaders(path);
@@ -401,19 +510,43 @@ public class PCA {
         FileUtil.readMatrix(path, matrix);
         log("Data read");
 
-        log("Scaling each row of data to a standard deviation of one");
-        for (int r = 0; r < numRows; r++) {
-            double mean = getMean(matrix, r);
-            double variance = getVariance(matrix, mean, r);
-            double stDev = Math.sqrt(variance);
+        double[] stDevs;
+        String suffix;
+        if (onColumns) {
+            log("Scaling each column of data to a standard deviation of one");
+            suffix = "columns";
+            stDevs = new double[numCols];
             for (int c = 0; c < numCols; c++) {
-                matrix.set(r, c, matrix.get(r, c) / stDev);
+                double mean = getColumnMean(matrix, c);
+                double variance = getColumnVariance(matrix, mean, c);
+                double stDev = Math.sqrt(variance);
+                stDevs[c] = stDev;
+                for (int r = 0; r < numRows; r++) {
+                    matrix.set(r, c, matrix.get(r, c) / stDev);
+                }
             }
+            log("Columns scaled");
+        } else {
+            log("Scaling each row of data to a standard deviation of one");
+            suffix = "rows";
+            stDevs = new double[numRows];
+            for (int r = 0; r < numRows; r++) {
+                double mean = getRowMean(matrix, r);
+                double variance = getRowVariance(matrix, mean, r);
+                double stDev = Math.sqrt(variance);
+                stDevs[r] = stDev;
+                for (int c = 0; c < numCols; c++) {
+                    matrix.set(r, c, matrix.get(r, c) / stDev);
+                }
+            }
+            log("Rows scaled");
         }
-        log("Rows scaled");
+        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".stdevs-" + suffix + ".txt")) {
+            FileUtil.writeArray(fw, "stdevs-" + suffix, stDevs);
+        }
 
         log("Writing scaled data");
-        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".scaled.txt")) {
+        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".scaled-" + suffix + ".txt")) {
             FileUtil.writeMatrix(fw, matrix, rowHeaders, colHeaders);
         }
 
@@ -422,101 +555,103 @@ public class PCA {
 
     /**
      *
-     * Covariance over rows.
+     * Covariance or Pearson correlation over rows or columns.
      *
-     * Calculates covariance for each pair of rows in a given matrix.
+     * Calculates covariance or Pearson correlation for each pair of
+     * rows/columns in a given matrix.
      *
-     * Writes the symmetric covariance matrix path.covariance.txt
+     * Writes the symmetric covariance matrix path.covariance.txt or correlation
+     * matrix path.correlation.txt
      *
      * @param path Path to the data matrix
+     * @param doCorrelation true if correlation is used and not covariance
+     * @param onColumns true if columns are to be centered instead of rows
      * @throws IOException If cannot read from / write to disk
      */
-    public static void covariance(Path path) throws IOException {
+    public static void covcor(Path path, boolean doCorrelation, boolean onColumns) throws IOException, InterruptedException {
 
         log("Reading data");
-        String[] colHeaders = FileUtil.readColumnHeaders(path);
-        String[] rowHeaders = FileUtil.readRowHeaders(path);
+        String[] colHeaders;
+        String[] rowHeaders;
+        String suffix;
+        if (onColumns) {
+            suffix = "columns";
+            colHeaders = FileUtil.readRowHeaders(path);
+            rowHeaders = FileUtil.readColumnHeaders(path);
+        } else {
+            suffix = "rows";
+            colHeaders = FileUtil.readColumnHeaders(path);
+            rowHeaders = FileUtil.readRowHeaders(path);
+        }
         int numCols = colHeaders.length;
         int numRows = rowHeaders.length;
         DenseMatrix matrix = new DenseMatrix(numRows, numCols);
-        FileUtil.readMatrix(path, matrix);
+        FileUtil.readMatrix(path, matrix, onColumns);
         log("Data read");
 
-        DenseMatrix covarianceMatrix = new DenseMatrix(numRows, numRows);
-        log("Calculating covariance matrix");
-        for (int r1 = 0; r1 < numRows; r1++) {
-            double mean1 = getMean(matrix, r1);
-            for (int r2 = r1; r2 < numRows; r2++) {
-                double mean2 = getMean(matrix, r2);
-                double covariance = 0;
-                for (int c = 0; c < numCols; c++) {
-                    covariance += (matrix.get(r1, c) - mean1) * (matrix.get(r2, c) - mean2) / (numCols - 1);
+        DenseMatrix corcovMatrix = new DenseMatrix(numRows, numRows);
+        String type = doCorrelation ? "correlation" : "covariance";
+        log("Calculating " + type + " matrix over " + suffix);
+        double[] means = new double[numRows];
+        for (int r = 0; r < numRows; r++) {
+            means[r] = getRowMean(matrix, r);
+        }
+        double[] variances = new double[numRows];
+        if (doCorrelation) {
+            for (int r = 0; r < numRows; r++) {
+                variances[r] = getRowVariance(matrix, means[r], r);
+            }
+        }
+
+        double[] data = matrix.getData();
+        double[] covcorData = corcovMatrix.getData();
+        ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        class Task implements Callable {
+
+            int i1, i2;
+
+            Task(int r1, int r2) {
+                i1 = r1;
+                i2 = r2;
+            }
+
+            @Override
+            public Void call() {
+                for (int r1 = i1; r1 < Math.min(i2, numRows); r1++) {
+                    covcorData[r1 * numRows + r1] = 1;
+                    for (int r2 = r1; r2 < numRows; r2++) {
+                        double covariance = 0;
+                        for (int c = 0; c < numCols; c++) {
+                            covariance += (data[c * numRows + r1] - means[r1]) * (data[c * numRows + r2] - means[r2]) / (numCols - 1);
+                        }
+                        if (doCorrelation) {
+                            double denom = Math.sqrt(variances[r1] * variances[r2]);
+                            covcorData[r1 * numRows + r2] = covariance / denom;
+                            covcorData[r2 * numRows + r1] = covariance / denom;
+                        } else {
+                            covcorData[r1 * numRows + r2] = covariance;
+                            covcorData[r2 * numRows + r1] = covariance;
+                        }
+                    }
+                    if (r1 > 0 && r1 % 1000 == 0) {
+                        log(r1 + " rows processed");
+                    }
                 }
-                covarianceMatrix.set(r1, r2, covariance);
-                covarianceMatrix.set(r2, r1, covariance);
-            }
-            if (r1 % 1000 == 0) {
-                log(r1 + " rows processed");
+                return null;
             }
         }
-        log("Covariance matrix calculated");
 
-        log("Writing covariance matrix");
-        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".covariance.txt")) {
-            FileUtil.writeMatrix(fw, covarianceMatrix, rowHeaders, rowHeaders);
+        List<Callable<Object>> todo = new ArrayList<>();
+        for (int row = 0; row < numRows; row += 100) {
+            todo.add(new Task(row, row + 100));
         }
+        executor.invokeAll(todo);
+        executor.shutdown();
+        log("Matrix calculated");
 
-        log("Done");
-    }
-
-    /**
-     *
-     * Pearson correlation over rows.
-     *
-     * Calculates Pearson correlation for each pair of rows in a given matrix.
-     *
-     * Writes the symmetric correlation matrix path.correlation.txt
-     *
-     * @param path Path to the data matrix
-     * @throws IOException If cannot read from / write to disk
-     */
-    public static void correlation(Path path) throws IOException {
-
-        log("Reading data");
-        String[] colHeaders = FileUtil.readColumnHeaders(path);
-        String[] rowHeaders = FileUtil.readRowHeaders(path);
-        int numCols = colHeaders.length;
-        int numRows = rowHeaders.length;
-        DenseMatrix matrix = new DenseMatrix(numRows, numCols);
-        FileUtil.readMatrix(path, matrix);
-        log("Data read");
-
-        DenseMatrix correlationMatrix = new DenseMatrix(numRows, numRows);
-        log("Calculating correlation matrix");
-        for (int r1 = 0; r1 < numRows; r1++) {
-            correlationMatrix.set(r1, r1, 1);
-            double mean1 = getMean(matrix, r1);
-            double var1 = getVariance(matrix, mean1, r1);
-            for (int r2 = r1 + 1; r2 < numRows; r2++) {
-                double mean2 = getMean(matrix, r2);
-                double var2 = getVariance(matrix, mean2, r2);
-                double covariance = 0;
-                for (int c = 0; c < numCols; c++) {
-                    covariance += (matrix.get(r1, c) - mean1) * (matrix.get(r2, c) - mean2) / (numCols - 1);
-                }
-                double denom = Math.sqrt(var1 * var2);
-                correlationMatrix.set(r1, r2, covariance / denom);
-                correlationMatrix.set(r2, r1, covariance / denom);
-            }
-            if (r1 % 1000 == 0) {
-                log(r1 + " rows processed");
-            }
-        }
-        log("Correlation matrix calculated");
-
-        log("Writing correlation matrix");
-        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".correlation.txt")) {
-            FileUtil.writeMatrix(fw, correlationMatrix, rowHeaders, rowHeaders);
+        log("Writing " + type + " matrix");
+        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + "." + type + "-" + suffix + ".txt")) {
+            FileUtil.writeMatrix(fw, corcovMatrix, rowHeaders, rowHeaders);
         }
 
         log("Done");
@@ -640,30 +775,39 @@ public class PCA {
         int lenItems = evMatrix.numColumns();
         int lenScores = scoreMatrix.numColumns();
 
+        double[] variances = new double[lenItems];
+        for (int i = 0; i < lenItems; i++) {
+            variances[i] = getRowVariance(originalMatrix, i);
+        }
+
         double[] alphas = new double[numComps];
         for (int comp = 0; comp < numComps; comp++) {
 
             double sumVariance = 0;
-            double[] scores = new double[lenScores];
             for (int i = 0; i < lenItems; i++) {
-                for (int j = 0; j < lenScores; j++) {
-                    scores[j] = originalMatrix.get(i, j) * evMatrix.get(comp, i);
-                }
-                sumVariance += JSci.maths.ArrayMath.variance(scores);
+                sumVariance += evMatrix.get(i, comp) * evMatrix.get(i, comp) * variances[i];
             }
 
-            double scoreMean = getMean(scoreMatrix, comp);
-            double scoreVariance = getVariance(scoreMatrix, scoreMean, comp);
+            double scoreMean = getRowMean(scoreMatrix, comp);
+            double scoreVariance = getRowVariance(scoreMatrix, scoreMean, comp);
 
             double alpha = (lenItems / (lenItems - 1d)) * (1d - (sumVariance / scoreVariance));
             alphas[comp] = alpha;
-            
-            log((comp + 1) + "\t" + alpha);
         }
 
         return alphas;
     }
 
+    /**
+     *
+     * Calculate split-half correlations for each principal component.
+     *
+     * @param evPath Eigenvector matrix, each row is an eigenvector
+     * @param originalPath Path to the original data matrix
+     * @param isEVTransposed True if each column is an eigenvector in the
+     * eigenvector matrix
+     * @throws IOException If cannot read from / write to disk
+     */
     private static void splitHalf(Path evPath, Path originalPath, boolean isEVTransposed) throws IOException {
 
         if (isEVTransposed) {
@@ -696,7 +840,7 @@ public class PCA {
 
         log("Centering each row of original data");
         for (int r = 0; r < numRows; r++) {
-            double mean = getMean(originalMatrix, r);
+            double mean = getRowMean(originalMatrix, r);
             for (int c = 0; c < numCols; c++) {
                 originalMatrix.add(r, c, -mean);
             }
@@ -791,7 +935,7 @@ public class PCA {
             FileUtil.readMatrix(originalPath, originalMatrix);
         }
         log("Original data read");
-        
+
         log("Calculating Cronbach's alpha for each component");
         double[] alphas = cronbachsAlpha(originalMatrix, evMatrix, scoreMatrix);
         log("Cronbach's alphas calculated");
@@ -800,5 +944,32 @@ public class PCA {
         try (FileWriter fw = new FileWriter(scorePath.toString().replace(".gz", "").replace(".txt", "") + ".cronbachsAlpha.txt")) {
             FileUtil.writeArray(fw, "cronbachsAlpha", alphas);
         }
+    }
+
+    private static void addNoise(Path path) throws IOException {
+
+        log("Reading data");
+        String[] colHeaders = FileUtil.readColumnHeaders(path);
+        String[] rowHeaders = FileUtil.readRowHeaders(path);
+        int numCols = colHeaders.length;
+        int numRows = rowHeaders.length;
+        DenseMatrix matrix = new DenseMatrix(numRows, numCols);
+        FileUtil.readMatrix(path, matrix);
+        log("Data read");
+
+        log("Adding noise: a random value from the uniform distribution [0, 0.001[");
+        for (int r = 0; r < numRows; r++) {
+            for (int c = 0; c < numCols; c++) {
+                matrix.add(r, c, Math.random() / 1000);
+            }
+        }
+        log("Noise added");
+
+        log("Writing data");
+        try (FileWriter fw = new FileWriter(path.toString().replace(".gz", "").replace(".txt", "") + ".noisied.txt")) {
+            FileUtil.writeMatrix(fw, matrix, rowHeaders, colHeaders);
+        }
+
+        log("Done");
     }
 }

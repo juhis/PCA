@@ -36,12 +36,12 @@ public class FileUtil {
             GZipFiles.lines(path)
                     .skip(1) // header
                     .map(line -> line.split("\\t"))
-                    .forEach(row -> headers.add(row[0]));
+                    .forEach(row -> headers.add(row[0].replace("]", "")));
         } else {
             Files.lines(path)
                     .skip(1) // header
                     .map(line -> line.split("\\t"))
-                    .forEach(row -> headers.add(row[0]));
+                    .forEach(row -> headers.add(row[0].replace("]", "")));
         }
         return headers.toArray(new String[0]);
     }
@@ -55,6 +55,9 @@ public class FileUtil {
             headers = Files.lines(path).findFirst().toString().split("\\t");
         }
         headers = Arrays.copyOfRange(headers, 1, headers.length);
+        for (int i = 0; i < headers.length; i++) {
+            headers[i] = headers[i].replace("]", "");
+        }
 
         return headers;
     }
@@ -133,11 +136,11 @@ public class FileUtil {
         fw.write(date);
         if (transpose) {
             for (int c = 0, cols = matrix.numRows(); c < cols; c++) {
-                fw.write("\t" + colHeaders[c]);
+                fw.write("\t" + colHeaders[c].replace("]", ""));
             }
         } else {
             for (int c = 0, cols = matrix.numColumns(); c < cols; c++) {
-                fw.write("\t" + colHeaders[c]);
+                fw.write("\t" + colHeaders[c].replace("]", ""));
             }
         }
         fw.write("\n");
@@ -145,7 +148,7 @@ public class FileUtil {
         // write data with row headers
         if (transpose) {
             for (int c = 0, cols = matrix.numColumns(); c < cols; c++) {
-                fw.write(rowHeaders[c]);
+                fw.write(rowHeaders[c].replace("]", ""));
                 for (int r = 0, rows = matrix.numRows(); r < rows; r++) {
                     fw.write("\t" + matrix.get(r, c));
                 }
@@ -153,7 +156,7 @@ public class FileUtil {
             }
         } else {
             for (int r = 0, rows = matrix.numRows(); r < rows; r++) {
-                fw.write(rowHeaders[r]);
+                fw.write(rowHeaders[r].replace("]", ""));
                 for (int c = 0, cols = matrix.numColumns(); c < cols; c++) {
                     fw.write("\t" + matrix.get(r, c));
                 }

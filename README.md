@@ -21,9 +21,7 @@ Java 8
 
 ## Input data format
 
-All commands use one or more input matrices. These should be tab-delimited text files. They can be plain text or gzipped. The first row in a data file, as well as the first column on each row, should contain headers. The input matrices are assumed to be ok: No missing values, no strings, all rows of the same length.
-
-Centering and scaling are performed for each row. Covariance and correlation are calculated for each pair of rows. If the other orientation is desired, data can be transposed first and then transposed back.
+All commands use one or more input matrices. These should be tab-delimited text files. They can be plain text or gzipped. The first row in a data file, as well as the first column on each row, should contain headers. The input matrices are assumed to be ok: No missing values, no unparseable values, all rows of the same length.
 
 ## Output data format
 
@@ -32,26 +30,38 @@ Output matrices have the same format as input matrices. Output matrices are writ
 ## Data centering
 
 ```
-java -jar PCA.jar center file
+java -jar PCA.jar center-rows file
 ```
-
-The first command line argument should be "center". The second command line argument should be a path to a tab-delimited text file containing a matrix.
 
 Writes:
 
-* file.centered.txt (a tab-delimited matrix with zero mean for every row)
+* file.centered-rows.txt (a tab-delimited matrix with zero mean for every row)
+
+```
+java -jar PCA.jar center-columns file
+```
+
+Writes:
+
+* file.centered-columns.txt (a tab-delimited matrix with zero mean for every column)
 
 ## Data scaling
 
 ```
-java -jar PCA.jar scale file
+java -jar PCA.jar scale-rows file
 ```
-
-The first command line argument should be "scale". The second command line argument should be a path to a tab-delimited text file containing a matrix.
 
 Writes:
 
-* file.scaled.txt (a tab-delimited matrix with standard deviation one for every row)
+* file.scaled-rows.txt (a tab-delimited matrix with standard deviation one for every row)
+
+```
+java -jar PCA.jar scale-columns file
+```
+
+Writes:
+
+* file.scaled-columns.txt (a tab-delimited matrix with standard deviation one for every column)
 
 ## Transposition
 
@@ -68,34 +78,44 @@ Writes:
 ## Covariance
 
 ```
-java -jar PCA.jar covariance file
+java -jar PCA.jar covariance-rows file
 ```
-
-The first command line argument should be "covariance". The second command line argument should be a path to a tab-delimited text file containing a matrix.
 
 Writes:
 
-* file.covariance.txt (a tab-delimited symmetric covariance matrix with covariance calculated for each pair of rows)
+* file.covariance-rows.txt (a tab-delimited symmetric covariance matrix with covariance calculated for each pair of rows)
+
+```
+java -jar PCA.jar covariance-columns file
+```
+
+Writes:
+
+* file.covariance-columns.txt (a tab-delimited symmetric covariance matrix with covariance calculated for each pair of columns)
 
 ## Correlation
 
 ```
-java -jar PCA.jar correlation file
+java -jar PCA.jar correlation-rows file
 ```
-
-The first command line argument should be "correlation". The second command line argument should be a path to a tab-delimited text file containing a matrix.
 
 Writes:
 
-* file.correlation.txt (a tab-delimited symmetric correlation matrix with correlation calculated for each pair of rows)
+* file.correlation-rows.txt (a tab-delimited symmetric correlation matrix with correlation calculated for each pair of rows)
+
+```
+java -jar PCA.jar correlation-columns file
+```
+
+Writes:
+
+* file.correlation-columns.txt (a tab-delimited symmetric correlation matrix with correlation calculated for each pair of columns)
 
 ## Eigenvector decomposition
 
 ```
 java -jar PCA.jar evd symmetricmatrixfile
 ```
-
-The first command line argument should be "evd". The second command line argument should be a path to a tab-delimited text file containing a symmetric matrix.
 
 Writes:
 
@@ -108,9 +128,8 @@ Writes:
 java -jar PCA.jar scores eigenvectorfile originalfile
 ```
 
-The first command line argument should be "scores". The second command line argument should be a path to a tab-delimited text file containing eigenvectors on rows.
-
-The third command line argument should be a path to a tab-delimited text file containing the original data. The orientation is detected automatically so that either rows or columns should correspond to the columns in the eigenvector file.
+eigenvectorfile should contain eigenvectors on rows.
+The orientation of originalfile is determined automatically.
 
 Writes:
 
@@ -123,7 +142,8 @@ Writes:
 java -jar PCA.jar transform scorefile eigenvaluefile
 ```
 
-The first command line argument should be "transform". The second command line argument should be a path to a tab-delimited text file containing principal component scores on rows (i.e. each row corresponds to a component). The third command line argument should be a file with eigenvalues corresponding to the eigenvectors based on which the principal component scores have been calculated.
+scorefile should contain principal component scores on rows (i.e. each row corresponds to a component).
+eigenvalues in eigenvaluefile should correspond to the eigenvectors based on which the principal component scores have been calculated.
 
 *Note: This operation works in the following scenario:*
 
